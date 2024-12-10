@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wikipedia DYK Prose Word & Character Count</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            padding: 20px;
+        }
+        input, button {
+            padding: 10px;
+            margin: 5px;
+        }
+        .result {
+            margin-top: 20px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Wikipedia DYK Prose Word & Character Count</h1>
+    <p>Enter a Wikipedia page name below or use a URL GET parameter `page`.</p>
+    <form id="proseLengthForm">
+        <label for="pageName">Wikipedia Page Name:</label>
+        <input type="text" id="pageName" name="pageName" placeholder="e.g., JavaScript">
+        <button type="submit">Calculate</button>
+    </form>
+    <div class="result" id="result"></div>
+
+    <script>
+        // Utility function to get URL parameters
+        function getQueryParam(param) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(param);
+        }
+
+        // Function to sanitize user input to prevent XSS or malformed input
+        function sanitizeInput(input) {
+            const temp = document.createElement("div");
+            temp.textContent = input;
+            return temp.innerHTML;
+        }
+
+        // Function to fetch Wikipedia article content and calculate prose character and word count
+        async function getWikipediaArticleProseStats(articleTitle) {
+            const apiUrl = `https://en.wikipedia.org/w/api.php?origin=*&action=parse&page=${encodeURIComponent(articleTitle)}&prop=text&format=json`;
+
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) throw new Error("Failed to fetch article");
+
+                const data = await response.json();
+                const htmlContent = data.parse.text["*"];
+
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(htmlContent, "text/html");
+
+                // Remove footnote markers (<sup> tags)
+                const supTags = doc.querySelectorAll("sup");
+                supTags.forEach((sup) => sup.remove());
+
+                // Calculate prose text and word count
+                let proseText = "";
+                let wordCount = 0;
+
+                const pList = doc.getElementsByTagName("p");
+                for (let i = 0; i < pList.length; i++) {
+                    const para = pList[i];
+                    const parent = para.parentNode.parentNode;
+                    const grandParent = parent ? parent.parentNode : null;
+
+                    if (parent === doc.body || (grandParent && grandParent.id == data.parse.pageid)) {
+                        const text = para.innerHTML.replace(/(<([^>]+)>)/ig, "");
+                        proseText += text.trim() + " ";
+                        wordCount += text.split(/\s+/).filter(Boolean).length; // Filter out empty strings
+                    }
+                }
+
+                const charCount = proseText.trim().length;
+                return { charCount, wordCount };
+            } catch (error) {
+                console.error("Error:", error);
+                return null;
+            }
+        }
+
+        // Handle form submission
+        document.getElementById("proseLengthForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const pageNameInput = document.getElementById("pageName").value.trim();
+            const pageName = sanitizeInput(pageNameInput);
+
+            if (!pageName) {
+                document.getElementById("result").textContent = "Please enter a valid Wikipedia page name.";
+                return;
+            }
+
+            document.getElementById("result").textContent = "Calculating...";
+            const stats = await getWikipediaArticleProseStats(pageName);
+
+            if (stats) {
+                document.getElementById("result").textContent = `Prose of "${pageName}" contains ${stats.wordCount} words and ${stats.charCount} characters.`;
+            } else {
+                document.getElementById("result").textContent = `Could not fetch the Wikipedia page "${pageName}".`;
+            }
+        });
+
+        // Automatically fetch prose stats if "page" is provided as a GET parameter
+        const pageFromParam = getQueryParam("page");
+        if (pageFromParam) {
+            const sanitizedPage = sanitizeInput(pageFromParam);
+            document.getElementById("pageName").value = sanitizedPage;
+            document.getElementById("result").textContent = "Calculating...";
+            getWikipediaArticleProseStats(sanitizedPage).then((stats) => {
+                if (stats) {
+                    document.getElementById("result").textContent = `Prose of "${sanitizedPage}" contains ${stats.wordCount} words and ${stats.charCount} characters.`;
+                } else {
+                    document.getElementById("result").textContent = `Could not fetch the Wikipedia page "${sanitizedPage}".`;
+                }
+            });
+        }
+    </script>
+</body>
+</html>
